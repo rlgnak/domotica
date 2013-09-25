@@ -10,6 +10,9 @@
 
   Domotica.VERSION = '0.0.1';
 
+  //these are used when attepting to recognize numbers
+  var numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
   var Router = Domotica.Router = function(options){
     options || (options = {});
     this._bindRoutes();
@@ -102,7 +105,9 @@
       var listener = this;
       var newSpeechRecognitionResults = _.toArray(e.results).slice(e.resultIndex)
       _.each(newSpeechRecognitionResults, function(speechRecognitionResult){
-        _.each(speechRecognitionResult, function(speechRecognitionAlternative){            
+        _.each(speechRecognitionResult, function(speechRecognitionAlternative){      
+            console.log(speechRecognitionAlternative.transcript)
+
             //ignore anything that doesn't match with atleast a 50% confidence;
             if(speechRecognitionAlternative.confidence < 0.50) return;
 
@@ -113,17 +118,48 @@
       this.onresult.apply(this, arguments);
     },
 
-    loadTask: function(transcript){      
+    loadTask: function(transcript){  
+      transcript = transcript.trim();
       var matched = _.any(this.handlers, function(handler) {
+        var phraseFragments = handler.phrase.split(" "); //handler.match(/%[a-z]|([^%]*)/g);
+        var transcriptFragments = transcript.split(" "); 
+
+        //for now we are just going to assume the number of words are the same and if they
+        //they are not the same then it just doesn't match.
+        if(phraseFragments.length != transcriptFragments.length){
+          return false;
+        }
+
+        var i, phraseFragment, transcriptFragment, levenshteinDistanceTotal = 0;
+        for(i = 0; i < phraseFragments.length; i++){
+          phraseFragment = phraseFragments[i];
+          transcriptFragment = transcriptFragments[i];
+
+          if(phraseFragment === "%d"){
+            if(_.isNumber(parseInt(transcriptFragment))){
+              continue;
+            };
+
+            levenshteinDistanceTotal += _.min(numbers, function(number){
+              return Levenshtein(transcriptFragment, number);
+            });
+          }else if(phraseFragment === "%w"){
+            continue;
+          }else{ 
+            levenshteinDistanceTotal += Levenshtein(transcriptFragment, phraseFragment);
+          }
+        }
+
         //check the levenshtein distance between the route phrase and the transcript 
         //if atleast levenshtein distance is less then 25% of the length lets assume it matches
-        if(Levenshtein(transcript, handler.phrase) <= transcript.length / 4){
+        if(levenshteinDistanceTotal <= transcript.length / 4){
           handler.callback(transcript);
           return true;
         }
       });
       return matched;
     },
+
 
     route: function(phrase, callback){
       this.handlers.unshift({phrase: phrase, callback: callback});
@@ -138,7 +174,7 @@
   // -------
 
   //Carlos R. L. Rodrigues (http://www.jsfromhell.com)
-  var Levenshtein = Domotica.Levenshtein = function(s1, s2){
+  var Levenshtein = function(s1, s2){
     var s, i, j, m, n;
     var s = s1.split("");
     var c = s2.split("");
